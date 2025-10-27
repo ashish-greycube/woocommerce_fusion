@@ -101,17 +101,42 @@ def update_stock_levels_on_woocommerce_site(item_code):
 				)
 
 				# Sum all quantities from select warehouses and round the total down (WooCommerce API doesn't accept float values)
-				data_to_post = {
-					"stock_quantity": math.floor(
-						sum(
-							bin.actual_qty
-							if not wc_server.subtract_reserved_stock
-							else bin.actual_qty - bin.reserved_qty
-							for bin in bins
-							if bin.warehouse in [row.warehouse for row in wc_server.warehouses]
-						)
-					)
-				}
+				# data_to_post = {
+				# 	"stock_quantity": math.floor(
+				# 		sum(
+				# 			bin.actual_qty
+				# 			if not wc_server.subtract_reserved_stock
+				# 			else bin.actual_qty - bin.reserved_qty
+				# 			for bin in bins
+				# 			if bin.warehouse in [row.warehouse for row in wc_server.warehouses]
+				# 		)
+				# 	)
+				# }
+
+				# greycube: WooCommerce Location based stock update
+				# https://techspawn.com/docs/woocommerce-multi-locations-inventory-management/how-to-use-the-rest-api/
+				# "stock_quantity": "55.55","meta_data": [{"key": "wcmlim_stock_at_74","value": "275"}]
+				# https://woocommerce.github.io/woocommerce-rest-api-docs/#update-a-product
+				stock_quantity=0
+				meta_data=[]
+				allowed_warehouses = [row.warehouse for row in wc_server.warehouses]
+				for bin in bins:
+					if bin.warehouse in allowed_warehouses:
+						quantity = 0
+						if not wc_server.subtract_reserved_stock:
+							quantity = bin.actual_qty
+						else:
+							quantity = bin.actual_qty - bin.reserved_qty
+						location_id=frappe.db.get_value('Wcmlim Location Detail', {'location_name': bin.warehouse}, ['location_id'])
+						if location_id:
+							key_value=f"wcmlim_stock_at_{location_id}"
+							meta_data.append({"key": key_value,"value": quantity})    
+						stock_quantity=stock_quantity+quantity
+				if len(meta_data)>0:
+					data_to_post={"stock_quantity":stock_quantity,"meta_data": meta_data}
+				else:
+					data_to_post={"stock_quantity":stock_quantity}
+				# greycube: WooCommerce Location based stock update
 
 				try:
 					parent_item_id = item.variant_of
